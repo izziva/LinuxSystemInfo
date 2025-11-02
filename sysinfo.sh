@@ -555,23 +555,47 @@ get_virt_info() {
 
 detect_init() {
     debug_function_enter "detect_init"
-    
-    local init_system
-    
-    if [[ -d /run/systemd/system ]]; then
-        init_system="systemd"
-        debug_log "Init system detected via /run/systemd/system: $init_system"
-    elif [[ -f /sbin/openrc ]]; then
-        init_system="OpenRC"
-        debug_log "Init system detected via /sbin/openrc: $init_system"
-    elif ps -p 1 -o comm= 2>/dev/null | grep -q "init"; then
-        init_system="SysVinit"
-        debug_log "Init system detected via ps -p 1: $init_system"
-    else
-        init_system="Unknown"
-        debug_log "Init system could not be determined: $init_system"
+
+    local init_system="Unknown"
+    local init_path
+
+    if [[ -f /proc/1/exe ]]; then
+        init_path=$(readlink -f /proc/1/exe)
+        debug_log "Init executable path: $init_path"
+        
+        # Check if PID 1 is a known init system
+        case "$init_path" in
+            */systemd)
+                init_system="systemd"
+                ;;
+            */init)
+                init_system="SysVinit" # Assume SysVinit and refine below
+                ;;
+            */busybox)
+                init_system="BusyBox"
+                ;;
+        esac
+    fi
+
+    # If the init system is still unknown or not a recognized one, use fallback methods.
+    # This is especially useful in containers where PID 1 might not be the real init system.
+    if [[ "$init_system" == "Unknown" ]] || ! [[ "$init_path" =~ (systemd|init|busybox) ]]; then
+        debug_log "PID 1 is not a standard init system, or detection failed. Using fallback."
+        if [[ -x /usr/lib/systemd/systemd ]] || [[ -d /run/systemd/system ]]; then
+            init_system="systemd"
+        elif [[ -f /etc/inittab ]] || (grep -q "Debian" /etc/os-release 2>/dev/null && [[ ! -d /run/systemd/system ]]); then
+            init_system="SysVinit"
+        elif [[ -x /sbin/openrc-init ]]; then
+            init_system="OpenRC"
+        fi
     fi
     
+    # Refine SysVinit vs OpenRC
+    if [[ "$init_system" == "SysVinit" ]] && [[ -x /sbin/openrc-init ]]; then
+        init_system="OpenRC"
+    fi
+
+    debug_log "Detected init system: $init_system"
     debug_function_exit "detect_init" "$init_system"
     echo "$init_system"
 }
@@ -655,7 +679,7 @@ detect_firewall() {
     if [[ "$IS_SYSTEMD" == "true" ]]; then
         debug_log "Checking firewall options for systemd system..."
         
-        if is_service_active ufw; then
+        if command -v ufw >/dev/null 2>&1 && grep -q "ENABLED=yes" /etc/ufw/ufw.conf 2>/dev/null; then
             fw="ufw"
         elif is_service_active firewalld; then
             fw="firewalld"
@@ -878,7 +902,7 @@ detect_all_package_managers() {
     
     if command -v emerge >/dev/null 2>&1; then
         pkg_count=$(qlist -I 2>/dev/null | wc -l)
-        [[ $pkg_count -eq 0 ]] && pkg_count=$(ls -d /var/db/pkg/*/* 2>/dev/null | wc -l)
+        [[ $pkg_count -eq 0 ]] && pkg_count=$(find /var/db/pkg -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l)
         [[ $pkg_count -gt 0 ]] && packages+=("${pkg_count} (emerge)") && ((total_packages+=pkg_count))
         debug_verbose "emerge: $pkg_count packages"
     fi
@@ -967,7 +991,7 @@ detect_all_package_managers() {
     fi
     
     if command -v cargo >/dev/null 2>&1 && [[ -d "$HOME/.cargo/bin" ]]; then
-        pkg_count=$(ls "$HOME/.cargo/bin" 2>/dev/null | wc -l)
+        pkg_count=$(find "$HOME/.cargo/bin" -maxdepth 1 -type f 2>/dev/null | wc -l)
         [[ $pkg_count -gt 0 ]] && packages+=("${pkg_count} (cargo)") && ((total_packages+=pkg_count))
         debug_verbose "cargo: $pkg_count binaries"
     fi

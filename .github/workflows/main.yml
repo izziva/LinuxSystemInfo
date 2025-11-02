@@ -9,7 +9,7 @@ on:
 jobs:
   shellcheck:
     name: Shellcheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
       - name: Run shellcheck
@@ -20,7 +20,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, fedora-latest]
+        os: [ubuntu-22.04]
         # We can add more services to the matrix as needed
         firewall: [ufw, firewalld]
         timesync: [chrony, ntp]
@@ -29,15 +29,13 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install Dependencies & Setup Environment
         run: |
-          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+          if [[ "${{ matrix.os }}" == "ubuntu-22.04" ]]; then
             sudo apt-get update
-            sudo apt-get install -y iproute2 procps wget gnupg lsb-release ca-certificates ufw firewalld chrony ntp docker.io podman
-          elif [[ "${{ matrix.os }}" == "fedora-latest" ]]; then
-            sudo dnf install -y iproute procps-ng wget lsb-release ufw firewalld chrony ntp podman
-            # Install Docker on Fedora
-            sudo dnf -y install dnf-plugins-core
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-            sudo dnf -y install docker-ce docker-ce-cli containerd.io
+            # Install base packages
+            sudo apt-get install -y iproute2 procps wget gnupg lsb-release ca-certificates podman
+            # Install conflicting packages based on the matrix
+            sudo apt-get install -y ${{ matrix.firewall }}
+            sudo apt-get install -y ${{ matrix.timesync }}
           fi
         
       - name: Configure and Test Firewall
@@ -47,8 +45,8 @@ jobs:
           sudo systemctl disable --now firewalld 2>/dev/null || true
           
           # Enable the one from the matrix
-          if [[ "${{ matrix.firewall }}" == "ufw" && "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            sudo ufw enable
+          if [[ "${{ matrix.firewall }}" == "ufw" && "${{ matrix.os }}" == "ubuntu-22.04" ]]; then
+            sudo ufw --force enable
             bash sysinfo.sh --core | grep -i "ufw"
           elif [[ "${{ matrix.firewall }}" == "firewalld" ]]; then
             sudo systemctl enable --now firewalld
@@ -76,9 +74,25 @@ jobs:
           bash sysinfo.sh --hardware
           bash sysinfo.sh --net
 
+  test-fedora:
+    name: Test on Fedora
+    runs-on: ubuntu-22.04
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Dependencies
+        run: |
+          dnf install -y iproute procps-ng wget lsb-release
+      - name: Run Script
+        run: |
+          echo "--- Running full script on Fedora ---"
+          bash sysinfo.sh
+          echo "--- Grepping for Fedora-specifics ---"
+          bash sysinfo.sh --packages | grep -i "dnf"
+
   test-alpine:
     name: Test on Alpine Linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container: alpine:latest
     steps:
       - uses: actions/checkout@v3
@@ -93,12 +107,14 @@ jobs:
 
   test-systemd-free:
     name: Test on systemd-free (Debian 10)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container: debian:10
     steps:
       - uses: actions/checkout@v3
       - name: Install Dependencies
         run: |
+          echo "deb http://archive.debian.org/debian/ buster main" > /etc/apt/sources.list
+          echo "deb http://archive.debian.org/debian-security/ buster/updates main" >> /etc/apt/sources.list
           apt-get update
           apt-get install -y procps iproute2 lsb-release wget
       - name: Run Script and Check for SysVinit
