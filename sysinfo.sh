@@ -13,6 +13,7 @@ DEBUG_MODE="${DEBUG_MODE:-false}"
 USE_COLORS="true"
 VERBOSE_MODE="false"
 TRACE_COMMANDS="false"
+SCRIPT_VERSION="2.2.0"
 
 # Debug step counter for tracking execution flow
 DEBUG_STEP=0
@@ -26,7 +27,7 @@ SCRIPT_START_TIME=$(date +%s)
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [OPTIONS]
+Usage: $(basename "$0") [OPTIONS] [SECTIONS]
 
 Linux system configuration information tool - Enhanced Edition with Debug
 
@@ -36,18 +37,31 @@ OPTIONS:
     -v, --verbose        Enable verbose mode (shows detailed command outputs)
     -t, --trace          Enable command tracing (shows every command executed)
     -h, --help           Show this help message
+    --version            Show script version
+
+SECTIONS:
+    --full (default)     Show all sections
+    --system             Show System Overview section
+    --hardware           Show Hardware section
+    --mem                Show Memory & Storage section
+    --core               Show Core System Components section
+    --net                Show Network Interfaces section
+    --packages           Show Package Managers section
+    --alternatives       Show Alternative Components section
+    --virt               Show Virtualization & Containers section
 
 EXAMPLES:
     $(basename "$0")                    # Normal execution with colors
     $(basename "$0") --no-color         # Plain text output (pipe-friendly)
     $(basename "$0") -d                 # Enable debug logging
-    $(basename "$0") -d -v              # Debug + verbose command outputs
+    $(basename "$0") --system --hardware # Show specific sections
     $(basename "$0") -d -v -t           # Full tracing (debug + verbose + command trace)
 
 EOF
 }
 
 parse_arguments() {
+    SECTIONS_TO_SHOW=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -n|--no-color|--no-colors)
@@ -73,6 +87,46 @@ parse_arguments() {
                 show_usage
                 exit 0
                 ;;
+            --version)
+                echo "sysinfo.sh version $SCRIPT_VERSION"
+                exit 0
+                ;;
+            --full)
+                SECTIONS_TO_SHOW+=("system" "hardware" "mem" "core" "net" "packages" "alternatives" "virt")
+                shift
+                ;;
+            --system)
+                SECTIONS_TO_SHOW+=("system")
+                shift
+                ;;
+            --hardware)
+                SECTIONS_TO_SHOW+=("hardware")
+                shift
+                ;;
+            --mem)
+                SECTIONS_TO_SHOW+=("mem")
+                shift
+                ;;
+            --core)
+                SECTIONS_TO_SHOW+=("core")
+                shift
+                ;;
+            --net)
+                SECTIONS_TO_SHOW+=("net")
+                shift
+                ;;
+            --packages)
+                SECTIONS_TO_SHOW+=("packages")
+                shift
+                ;;
+            --alternatives)
+                SECTIONS_TO_SHOW+=("alternatives")
+                shift
+                ;;
+            --virt)
+                SECTIONS_TO_SHOW+=("virt")
+                shift
+                ;;
             *)
                 echo "Unknown option: $1" >&2
                 show_usage
@@ -80,6 +134,10 @@ parse_arguments() {
                 ;;
         esac
     done
+
+    if [[ ${#SECTIONS_TO_SHOW[@]} -eq 0 ]]; then
+        SECTIONS_TO_SHOW=("system" "hardware" "mem" "core" "net" "packages" "alternatives" "virt")
+    fi
 }
 
 # ============================================================================
@@ -129,7 +187,8 @@ debug_step_counter() {
 
 # Get elapsed time since script start
 get_elapsed_time() {
-    local current_time=$(date +%s)
+    local current_time
+    current_time=$(date +%s)
     local elapsed=$((current_time - SCRIPT_START_TIME))
     printf "+%.2fs" "$elapsed"
 }
@@ -137,8 +196,10 @@ get_elapsed_time() {
 # Enhanced debug log with step counter and timing
 debug_log() {
     if [[ "$DEBUG_MODE" == "true" ]]; then
-        local step=$(debug_step_counter)
-        local elapsed=$(get_elapsed_time)
+        local step
+        step=$(debug_step_counter)
+        local elapsed
+        elapsed=$(get_elapsed_time)
         echo -e "${GRAY}${step}${RESET} ${YELLOW}[DEBUG]${RESET} ${GRAY}${elapsed}${RESET} $*" >&2
     fi
 }
@@ -146,8 +207,10 @@ debug_log() {
 # Info level logging - always shown in debug mode
 debug_info() {
     if [[ "$DEBUG_MODE" == "true" ]]; then
-        local step=$(debug_step_counter)
-        local elapsed=$(get_elapsed_time)
+        local step
+        step=$(debug_step_counter)
+        local elapsed
+        elapsed=$(get_elapsed_time)
         echo -e "${GRAY}${step}${RESET} ${BRIGHT_CYAN}[INFO]${RESET}  ${GRAY}${elapsed}${RESET} $*" >&2
     fi
 }
@@ -155,8 +218,10 @@ debug_info() {
 # Verbose logging - only shown in verbose mode
 debug_verbose() {
     if [[ "$VERBOSE_MODE" == "true" ]]; then
-        local step=$(debug_step_counter)
-        local elapsed=$(get_elapsed_time)
+        local step
+        step=$(debug_step_counter)
+        local elapsed
+        elapsed=$(get_elapsed_time)
         echo -e "${GRAY}${step}${RESET} ${GREEN}[VERB]${RESET}  ${GRAY}${elapsed}${RESET} $*" >&2
     fi
 }
@@ -164,8 +229,10 @@ debug_verbose() {
 # Command trace logging - shows commands being executed
 debug_cmd() {
     if [[ "$TRACE_COMMANDS" == "true" ]]; then
-        local step=$(debug_step_counter)
-        local elapsed=$(get_elapsed_time)
+        local step
+        step=$(debug_step_counter)
+        local elapsed
+        elapsed=$(get_elapsed_time)
         echo -e "${GRAY}${step}${RESET} ${BRIGHT_YELLOW}[CMD]${RESET}   ${GRAY}${elapsed}${RESET} ${CYAN}➜${RESET} $*" >&2
     fi
 }
@@ -330,6 +397,159 @@ is_service_active() {
 }
 
 # ============================================================================
+# DATA COLLECTION FUNCTIONS
+# ============================================================================
+
+# Section: System Overview
+get_system_info() {
+    debug_function_enter "get_system_info"
+    HOSTNAME=$(hostname)
+    HOST_MODEL=$(get_host_info)
+    DISTRO=$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'"' -f2)
+    [[ -z "$DISTRO" ]] && DISTRO=$(lsb_release -d 2>/dev/null | cut -f2)
+    KERNEL=$(uname -r)
+    ARCH=$(uname -m)
+    UPTIME=$(uptime -p 2>/dev/null | sed 's/up //')
+    [[ -z "$UPTIME" ]] && UPTIME=$(uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}')
+    SHELL_VERSION=$(basename "$SHELL")
+    debug_function_exit "get_system_info"
+}
+
+# Section: Hardware
+get_hardware_info() {
+    debug_function_enter "get_hardware_info"
+    CPU_INFO=$(get_cpu_info)
+    GPU_INFO=$(get_gpu_info)
+    GPU_ARRAY=()
+    if [[ "$GPU_INFO" != "Unable to detect" ]]; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && GPU_ARRAY+=("$line")
+        done < <(echo "$GPU_INFO" | tr '|' '\n')
+    else
+        GPU_ARRAY=("Unable to detect")
+    fi
+    debug_function_exit "get_hardware_info"
+}
+
+# Section: Memory & Storage
+get_mem_info() {
+    debug_function_enter "get_mem_info"
+    MEMORY_INFO=$(get_memory_info)
+    SWAP_INFO=$(get_swap_info)
+    DISK_SUMMARY=()
+    while IFS= read -r line; do
+        DISK_SUMMARY+=("$line")
+    done < <(get_disk_summary)
+    PARTITIONS=()
+    while IFS= read -r line; do
+        PARTITIONS+=("$line")
+    done < <(get_partition_layout)
+    debug_function_exit "get_mem_info"
+}
+
+# Section: Core System Components
+get_core_info() {
+    debug_function_enter "get_core_info"
+    INIT_SYSTEM=$(detect_init)
+    INIT_VERSION=$(get_component_version "$INIT_SYSTEM")
+    INIT_DISPLAY=$(format_with_version "$INIT_SYSTEM" "$INIT_VERSION")
+    NETWORK_MGR=$(detect_network_manager)
+    NETWORK_VERSION=$(get_component_version "$NETWORK_MGR")
+    NETWORK_DISPLAY=$(format_with_version "$NETWORK_MGR" "$NETWORK_VERSION")
+    TIME_SYNC=$(detect_time_sync)
+    TIME_VERSION=$(get_component_version "$TIME_SYNC")
+    TIME_DISPLAY=$(format_with_version "$TIME_SYNC" "$TIME_VERSION")
+    FIREWALL=$(detect_firewall)
+    FIREWALL_VERSION=$(get_component_version "$FIREWALL")
+    FIREWALL_DISPLAY=$(format_with_version "$FIREWALL" "$FIREWALL_VERSION")
+    DNS_RESOLVER=$(detect_dns_resolver)
+    CRON_SYS=$(detect_cron)
+    SECURITY=$(detect_security)
+    if [[ "$SECURITY" == "AppArmor" ]]; then
+        SECURITY_VERSION=$(get_component_version "$SECURITY")
+        SECURITY_DISPLAY=$(format_with_version "$SECURITY" "$SECURITY_VERSION")
+    else
+        SECURITY_DISPLAY="$SECURITY"
+    fi
+    DISPLAY_SERVER=$(detect_display_server)
+    BOOTLOADER=$(detect_bootloader)
+    debug_function_exit "get_core_info"
+}
+
+# Section: Network Interfaces
+get_net_info() {
+    debug_function_enter "get_net_info"
+    net_info # This function will now populate the arrays directly
+    debug_function_exit "get_net_info"
+}
+
+# Section: Package Managers
+get_packages_info() {
+    debug_function_enter "get_packages_info"
+    PKG_MGR=$(detect_package_manager)
+    PKG_MANAGERS=$(detect_all_package_managers)
+    debug_function_exit "get_packages_info"
+}
+
+# Section: Alternative Components
+get_alternatives_info() {
+    debug_function_enter "get_alternatives_info"
+    NETWORK_ALTERNATIVES=()
+    while IFS= read -r line; do
+        NETWORK_ALTERNATIVES+=("$line")
+    done < <(detect_network_alternatives)
+    FIREWALL_ALTERNATIVES=()
+    while IFS= read -r line; do
+        FIREWALL_ALTERNATIVES+=("$line")
+    done < <(detect_firewall_alternatives)
+    TIMESYNC_ALTERNATIVES=()
+    while IFS= read -r line; do
+        TIMESYNC_ALTERNATIVES+=("$line")
+    done < <(detect_timesync_alternatives)
+    debug_function_exit "get_alternatives_info"
+}
+
+# Section: Virtualization & Containers
+get_virt_info() {
+    debug_function_enter "get_virt_info"
+    KVM_STATUS=$(detect_kvm)
+    CONTAINER_RUNTIME=$(detect_container_runtime)
+    DOCKER_CONTAINERS=$(get_docker_containers)
+    PODMAN_CONTAINERS=$(get_podman_containers)
+    LXC_CONTAINERS=$(get_lxc_containers)
+    DOCKER_ARRAY=()
+    if [[ -n "$DOCKER_CONTAINERS" ]] && [[ "$DOCKER_CONTAINERS" != "None running" ]]; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && DOCKER_ARRAY+=("$line")
+        done < <(echo "$DOCKER_CONTAINERS" | tr '|' '\n')
+    fi
+    PODMAN_ARRAY=()
+    if [[ -n "$PODMAN_CONTAINERS" ]] && [[ "$PODMAN_CONTAINERS" != "None running" ]]; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && PODMAN_ARRAY+=("$line")
+        done < <(echo "$PODMAN_CONTAINERS" | tr '|' '\n')
+    fi
+    LXC_ARRAY=()
+    if [[ -n "$LXC_CONTAINERS" ]] && [[ "$LXC_CONTAINERS" != "None running" ]]; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && LXC_ARRAY+=("$line")
+        done < <(echo "$LXC_CONTAINERS" | tr '|' '\n')
+    fi
+    declare -A DOCKER_DETAILS
+    while IFS=':' read -r key value; do
+        [[ -n "$key" ]] && DOCKER_DETAILS["$key"]="$value"
+    done < <(get_docker_details)
+    declare -A PODMAN_DETAILS
+    while IFS=':' read -r key value; do
+        [[ -n "$key" ]] && PODMAN_DETAILS["$key"]="$value"
+    done < <(get_podman_details)
+    declare -A LXC_DETAILS
+    while IFS=':' read -r key value; do
+        [[ -n "$key" ]] && LXC_DETAILS["$key"]="$value"
+    done < <(get_lxc_details)
+    debug_function_exit "get_virt_info"
+}
+# ============================================================================
 # DETECTION FUNCTIONS - BASIC
 # ============================================================================
 
@@ -489,7 +709,7 @@ get_docker_containers() {
             ((container_count++))
             debug_verbose "Found Docker container: $name [$image]"
         fi
-    done < <(trace_exec "Query Docker containers" 'docker ps --format "{{.Names}}|{{.Image}}|{{.Status}}|{{.RunningFor}}"')
+    done < <(trace_exec "Query Docker containers" 'docker ps --format "{{.Names}}|{{.Image}}|{{.Status}}|{{.RunningFor}}" 2>/dev/null')
     
     if [[ ${#containers[@]} -eq 0 ]]; then
         debug_log "No running Docker containers found"
@@ -557,37 +777,33 @@ get_lxc_containers() {
             if [[ -n "$container" ]]; then
                 debug_verbose "Checking LXC container: $container"
                 
-                # Get container state
-                local state=$(lxc-info -n "$container" -s 2>/dev/null | grep -oP "State:\s*\K\w+")
+                # Get process PID for uptime calculation
+                local pid
+                pid=$(lxc-info -n "$container" -p 2>/dev/null | grep -oP "PID:\s*\K\d+")
+                local uptime=""
                 
-                if [[ "$state" == "RUNNING" ]]; then
-                    debug_verbose "Container $container is RUNNING"
+                if [[ -n "$pid" ]] && [[ -f "/proc/$pid/stat" ]]; then
+                    debug_cmd "Reading process start time from /proc/$pid/stat"
+                    local start_time
+                    start_time=$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)
                     
-                    # Get process PID for uptime calculation
-                    local pid=$(lxc-info -n "$container" -p 2>/dev/null | grep -oP "PID:\s*\K\d+")
-                    local uptime=""
-                    
-                    if [[ -n "$pid" ]] && [[ -f "/proc/$pid/stat" ]]; then
-                        debug_cmd "Reading process start time from /proc/$pid/stat"
-                        local start_time=$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)
-                        
-                        if [[ -n "$start_time" ]]; then
-                            local boot_time=$(awk '{print $1}' /proc/uptime 2>/dev/null | cut -d. -f1)
-                            local container_uptime=$((boot_time - start_time / 100))
-                            uptime=$(printf "%dd %dh" $((container_uptime/86400)) $(((container_uptime%86400)/3600)))
-                            debug_verbose "Calculated uptime: $uptime"
-                        fi
+                    if [[ -n "$start_time" ]]; then
+                        local boot_time
+                        boot_time=$(awk '{print $1}' /proc/uptime 2>/dev/null | cut -d. -f1)
+                        local container_uptime=$((boot_time - start_time / 100))
+                        uptime=$(printf "%dd %dh" $((container_uptime/86400)) $(((container_uptime%86400)/3600)))
+                        debug_verbose "Calculated uptime: $uptime"
                     fi
-                    
-                    if [[ -n "$uptime" ]]; then
-                        containers+=("$container (running, up $uptime)")
-                    else
-                        containers+=("$container (running)")
-                    fi
-                    ((container_count++))
                 fi
+                
+                if [[ -n "$uptime" ]]; then
+                    containers+=("$container (running, up $uptime)")
+                else
+                    containers+=("$container (running)")
+                fi
+                ((container_count++))
             fi
-        done < <(trace_exec "List LXC containers" "lxc-ls -1")
+        done < <(trace_exec "List running LXC containers" "lxc-ls --running")
     fi
     
     # LXD
@@ -616,7 +832,6 @@ get_lxc_containers() {
         echo "$container_str"
     fi
 }
-
 # ============================================================================
 # PACKAGE MANAGER DETECTION - EXTENDED (like neofetch)
 # ============================================================================
@@ -707,7 +922,8 @@ detect_all_package_managers() {
     local appimage_count=0
     for dir in "${appimage_dirs[@]}"; do
         if [[ -d "$dir" ]]; then
-            local count=$(find "$dir" -maxdepth 1 -type f -name "*.AppImage" 2>/dev/null | wc -l)
+            local count
+            count=$(find "$dir" -maxdepth 1 -type f -name "*.AppImage" 2>/dev/null | wc -l)
             appimage_count=$((appimage_count + count))
             debug_verbose "Found $count AppImages in $dir"
         fi
@@ -807,7 +1023,8 @@ detect_security() {
     
     if command -v getenforce >/dev/null 2>&1; then
         debug_log "Checking SELinux status..."
-        local selinux_state=$(trace_exec "Get SELinux status" "getenforce")
+        local selinux_state
+        selinux_state=$(trace_exec "Get SELinux status" "getenforce")
         
         if [[ "$selinux_state" =~ Enforcing|Permissive ]]; then
             security_framework="SELinux ($selinux_state)"
@@ -897,7 +1114,8 @@ detect_cron() {
         if is_service_active cron || is_service_active cronie; then
             cron_system="cron/cronie"
         else
-            local timer_count=$(systemctl list-timers --all --no-pager 2>/dev/null | grep -c "timer" || echo "0")
+            local timer_count
+            timer_count=$(systemctl list-timers --all --no-pager 2>/dev/null | grep -c "timer" || echo "0")
             cron_system="systemd-timers (${timer_count} timers)"
             debug_verbose "Found $timer_count systemd timers"
         fi
@@ -934,7 +1152,8 @@ detect_real_container_runtime() {
         
         # Method 1: Check if it's a symlink to podman
         if [[ -L "$(command -v docker)" ]]; then
-            local target=$(readlink -f "$(command -v docker)")
+            local target
+            target=$(readlink -f "$(command -v docker)")
             debug_cmd "Checking docker symlink target: $target"
             
             if [[ "$target" =~ podman ]]; then
@@ -947,7 +1166,8 @@ detect_real_container_runtime() {
         # Method 2: Check docker version output
         elif docker version --format '{{.Server.Os}}' 2>/dev/null | grep -q "linux"; then
             # Verify if the daemon is truly docker
-            local server_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
+            local server_version
+            server_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
             
             if docker info 2>&1 | grep -qi "podman"; then
                 docker_type="podman-docker"
@@ -982,9 +1202,12 @@ detect_container_runtime() {
     debug_function_enter "detect_container_runtime"
     
     local runtimes=()
-    local runtime_info=$(detect_real_container_runtime)
-    local docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
-    local podman_type=$(echo "$runtime_info" | grep -o 'podman_type:[^|]*' | cut -d: -f2)
+    local runtime_info
+    runtime_info=$(detect_real_container_runtime)
+    local docker_type
+    docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
+    local podman_type
+    podman_type=$(echo "$runtime_info" | grep -o 'podman_type:[^|]*' | cut -d: -f2)
     
     debug_log "Processing container runtime information..."
     debug_verbose "Docker type: ${docker_type:-none}"
@@ -992,14 +1215,16 @@ detect_container_runtime() {
     
     # Real Docker
     if [[ "$docker_type" == "docker" ]]; then
-        local containers=$(docker ps -q 2>/dev/null | wc -l)
+        local containers
+        containers=$(docker ps -q 2>/dev/null | wc -l)
         runtimes+=("Docker ($containers running)")
         debug_info "Docker: $containers running containers"
     fi
     
     # Podman (count only if not already counting via podman-docker)
     if [[ "$podman_type" == "podman" ]]; then
-        local containers=$(podman ps -q 2>/dev/null | wc -l)
+        local containers
+        containers=$(podman ps -q 2>/dev/null | wc -l)
         
         if [[ "$docker_type" == "podman-docker" ]]; then
             runtimes+=("Podman ($containers running) [via docker alias]")
@@ -1010,7 +1235,8 @@ detect_container_runtime() {
         fi
     elif [[ "$docker_type" == "podman-docker" ]]; then
         # Only podman-docker without native podman
-        local containers=$(docker ps -q 2>/dev/null | wc -l)
+        local containers
+        containers=$(docker ps -q 2>/dev/null | wc -l)
         runtimes+=("Podman ($containers running) [via docker alias]")
         debug_info "Podman (docker alias only): $containers running containers"
     fi
@@ -1046,16 +1272,19 @@ detect_container_runtime() {
 detect_kvm() {
     debug_function_enter "detect_kvm"
     
-    local kvm_status
+    local kvm_status="Inactive"
     
     debug_log "Checking if KVM kernel module is loaded..."
     
-    if lsmod | grep -qw kvm; then
-        kvm_status="Active"
-        debug_info "KVM module is loaded and active"
+    if command -v lsmod >/dev/null 2>&1; then
+        if lsmod | grep -qw kvm; then
+            kvm_status="Active"
+            debug_info "KVM module is loaded and active"
+        else
+            debug_verbose "KVM module not found in lsmod output"
+        fi
     else
-        kvm_status="Inactive"
-        debug_verbose "KVM module not found in lsmod output"
+        debug_log "lsmod command not found, skipping KVM check."
     fi
     
     debug_function_exit "detect_kvm" "$kvm_status"
@@ -1074,7 +1303,8 @@ detect_bootloader() {
         
         if command -v efibootmgr >/dev/null 2>&1; then
             debug_cmd "Querying EFI boot entries with efibootmgr"
-            local efi_entries=$(efibootmgr 2>/dev/null)
+            local efi_entries
+            efi_entries=$(efibootmgr 2>/dev/null)
             
             if echo "$efi_entries" | grep -qi "grub"; then
                 bootloader="GRUB (UEFI)"
@@ -1120,10 +1350,14 @@ get_memory_info() {
     
     debug_log "Collecting RAM usage information..."
     
-    local total_ram=$(free -h | awk '/^Mem:/{print $2}')
-    local used_ram=$(free -h | awk '/^Mem:/{print $3}')
-    local available_ram=$(free -h | awk '/^Mem:/{print $7}')
-    local ram_percent=$(free | awk '/^Mem:/{printf("%.1f%%", $3/$2 * 100)}')
+    local total_ram
+    total_ram=$(free -h | awk '/^Mem:/{print $2}')
+    local used_ram
+    used_ram=$(free -h | awk '/^Mem:/{print $3}')
+    local available_ram
+    available_ram=$(free -h | awk '/^Mem:/{print $7}')
+    local ram_percent
+    ram_percent=$(free | awk '/^Mem:/{printf("%.1f%%", $3/$2 * 100)}')
     
     debug_verbose "RAM - Total: $total_ram, Used: $used_ram ($ram_percent), Available: $available_ram"
     
@@ -1137,15 +1371,19 @@ get_swap_info() {
     
     debug_log "Collecting swap usage information..."
     
-    local swap_total=$(free -h | awk '/^Swap:/{print $2}')
-    local swap_used=$(free -h | awk '/^Swap:/{print $3}')
-    local swap_free=$(free -h | awk '/^Swap:/{print $4}')
+    local swap_total
+    swap_total=$(free -h | awk '/^Swap:/{print $2}')
+    local swap_used
+    swap_used=$(free -h | awk '/^Swap:/{print $3}')
+    local swap_free
+    swap_free=$(free -h | awk '/^Swap:/{print $4}')
     
     if [[ "$swap_total" == "0B" ]] || [[ -z "$swap_total" ]]; then
         debug_verbose "No swap configured on this system"
         echo "Not configured"
     else
-        local swap_percent=$(free | awk '/^Swap:/{if($2>0) printf("%.1f%%", $3/$2 * 100); else print "0%"}')
+        local swap_percent
+        swap_percent=$(free | awk '/^Swap:/{if($2>0) printf("%.1f%%", $3/$2 * 100); else print "0%"}')
         debug_verbose "Swap - Total: $swap_total, Used: $swap_used ($swap_percent), Free: $swap_free"
         local result="Total: ${swap_total} | Used: ${swap_used} (${swap_percent}) | Free: ${swap_free}"
         debug_function_exit "get_swap_info" "$result"
@@ -1158,23 +1396,7 @@ get_disk_summary() {
     
     debug_log "Gathering disk usage summary (excluding temporary filesystems)..."
     
-    local disk_info=()
-    local disk_count=0
-    
-    while IFS= read -r line; do
-        disk_info+=("$line")
-        ((disk_count++))
-        debug_verbose "Disk entry: $line"
-    done < <(trace_exec "Query disk usage" "df -h 2>/dev/null | grep -vE '^(tmpfs|devtmpfs|udev|overlay|shm|run|cgroup|none|Filesystem)' | awk 'NF>=6 {printf \"%s [%s] %s/%s (%s) → %s\\n\", \$1, \$2, \$4, \$3, \$5, \$6}'")
-    
-    if [[ ${#disk_info[@]} -eq 0 ]]; then
-        debug_log "No disk information could be retrieved"
-        echo "Unable to detect"
-    else
-        debug_info "Found $disk_count disk mount point(s)"
-        debug_function_exit "get_disk_summary" "$disk_count mount points"
-        printf '%s\n' "${disk_info[@]}"
-    fi
+    df -h 2>/dev/null | grep -vE '^(tmpfs|devtmpfs|udev|overlay|shm|run|cgroup|none|Filesystem)' | awk 'NF>=6 {printf "%s [%s] %s/%s (%s) → %s\n", $1, $2, $4, $3, $5, $6}'
 }
 
 get_partition_layout() {
@@ -1185,28 +1407,32 @@ get_partition_layout() {
     local partitions=()
     
     # Root partition
-    local root_part=$(findmnt / -o SOURCE -n 2>/dev/null)
+    local root_part
+    root_part=$(findmnt / -o SOURCE -n 2>/dev/null)
     if [[ -n "$root_part" ]]; then
         partitions+=("${root_part} → /")
         debug_verbose "Root partition: $root_part"
     fi
     
     # Home partition (if separate)
-    local home_part=$(findmnt /home -o SOURCE -n 2>/dev/null)
+    local home_part
+    home_part=$(findmnt /home -o SOURCE -n 2>/dev/null)
     if [[ -n "$home_part" ]] && [[ "$root_part" != "$home_part" ]]; then
         partitions+=("${home_part} → /home")
         debug_verbose "Separate /home partition: $home_part"
     fi
     
     # Boot partition
-    local boot_part=$(findmnt /boot -o SOURCE -n 2>/dev/null)
+    local boot_part
+    boot_part=$(findmnt /boot -o SOURCE -n 2>/dev/null)
     if [[ -n "$boot_part" ]] && [[ "$root_part" != "$boot_part" ]]; then
         partitions+=("${boot_part} → /boot")
         debug_verbose "Separate /boot partition: $boot_part"
     fi
     
     # EFI partition
-    local efi_part=$(findmnt /boot/efi -o SOURCE -n 2>/dev/null)
+    local efi_part
+    efi_part=$(findmnt /boot/efi -o SOURCE -n 2>/dev/null)
     if [[ -n "$efi_part" ]]; then
         partitions+=("${efi_part} → /boot/efi")
         debug_verbose "EFI partition: $efi_part"
@@ -1301,8 +1527,10 @@ get_host_info() {
     if [[ -f /sys/devices/virtual/dmi/id/product_name ]] && [[ -f /sys/devices/virtual/dmi/id/product_version ]]; then
         debug_verbose "Reading DMI/SMBIOS information from /sys"
         
-        local product_name=$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null | tr -d '\0')
-        local product_version=$(cat /sys/devices/virtual/dmi/id/product_version 2>/dev/null | tr -d '\0')
+        local product_name
+        product_name=$(tr -d '\0' < /sys/devices/virtual/dmi/id/product_name 2>/dev/null)
+        local product_version
+        product_version=$(tr -d '\0' < /sys/devices/virtual/dmi/id/product_version 2>/dev/null)
         
         # Ignore generic/non-useful values
         if [[ -n "$product_name" ]] && \
@@ -1330,12 +1558,14 @@ get_host_info() {
     # Method 2: dmidecode (fallback, often requires root)
     if [[ -z "$host" ]] && command -v dmidecode >/dev/null 2>&1; then
         debug_log "Trying dmidecode as fallback..."
-        local dmi_output=$(trace_exec "Query DMI information" "dmidecode -t system")
+        local dmi_output
+        dmi_output=$(trace_exec "Query DMI information" "dmidecode -t system")
         
         if [[ -n "$dmi_output" ]]; then
-            local manufacturer=$(echo "$dmi_output" | grep "Manufacturer:" | cut -d: -f2 | sed 's/^[ \t]*//')
-            local product=$(echo "$dmi_output" | grep "Product Name:" | cut -d: -f2 | sed 's/^[ \t]*//')
-            local version=$(echo "$dmi_output" | grep "Version:" | cut -d: -f2 | sed 's/^[ \t]*//')
+            local product
+            product=$(echo "$dmi_output" | grep "Product Name:" | cut -d: -f2 | sed 's/^[ \t]*//')
+            local version
+            version=$(echo "$dmi_output" | grep "Version:" | cut -d: -f2 | sed 's/^[ \t]*//')
             
             if [[ -n "$product" ]] && [[ "$product" != "System Product Name" ]]; then
                 host="$product"
@@ -1351,7 +1581,8 @@ get_host_info() {
         
         # systemd-detect-virt
         if command -v systemd-detect-virt >/dev/null 2>&1; then
-            local virt_type=$(trace_exec "Detect virtualization" "systemd-detect-virt")
+            local virt_type
+            virt_type=$(trace_exec "Detect virtualization" "systemd-detect-virt")
             
             if [[ "$virt_type" != "none" ]] && [[ -n "$virt_type" ]]; then
                 debug_info "Virtualization detected: $virt_type"
@@ -1361,7 +1592,8 @@ get_host_info() {
                         host="KVM Virtual Machine"
                         # Look for KVM version
                         if [[ -f /sys/devices/virtual/dmi/id/product_version ]]; then
-                            local kvm_ver=$(cat /sys/devices/virtual/dmi/id/product_version 2>/dev/null | tr -d '\0')
+                            local kvm_ver
+                            kvm_ver=$(tr -d '\0' < /sys/devices/virtual/dmi/id/product_version 2>/dev/null)
                             [[ -n "$kvm_ver" ]] && [[ "$kvm_ver" != "Not Specified" ]] && host="$host $kvm_ver"
                         fi
                         ;;
@@ -1395,14 +1627,15 @@ get_host_info() {
     
     # Method 4: Raspberry Pi / ARM boards
     if [[ -z "$host" ]] && [[ -f /proc/device-tree/model ]]; then
-        host=$(cat /proc/device-tree/model 2>/dev/null | tr -d '\0')
+        host=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)
         debug_verbose "ARM device model from device-tree: $host"
     fi
     
     # If still not found, use basic system information
     if [[ -z "$host" ]]; then
         if [[ -f /sys/devices/virtual/dmi/id/board_name ]]; then
-            local board=$(cat /sys/devices/virtual/dmi/id/board_name 2>/dev/null | tr -d '\0')
+            local board
+            board=$(tr -d '\0' < /sys/devices/virtual/dmi/id/board_name 2>/dev/null)
             [[ -n "$board" ]] && [[ "$board" != "Default string" ]] && host="$board"
             debug_verbose "Board name: $host"
         fi
@@ -1432,7 +1665,8 @@ detect_network_alternatives() {
     if command -v nmcli >/dev/null 2>&1; then
         local status="inactive"
         is_service_active NetworkManager && status="active"
-        local version=$(get_component_version "NetworkManager")
+        local version
+        version=$(get_component_version "NetworkManager")
         alternatives+=("NetworkManager (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "NetworkManager: $status"
     fi
@@ -1454,7 +1688,8 @@ detect_network_alternatives() {
     if [[ -f /lib/systemd/systemd-networkd ]] || [[ -f /usr/lib/systemd/systemd-networkd ]]; then
         local status="inactive"
         is_service_active systemd-networkd && status="active"
-        local version=$(get_component_version "systemd-networkd")
+        local version
+        version=$(get_component_version "systemd-networkd")
         alternatives+=("systemd-networkd (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "systemd-networkd: $status"
     fi
@@ -1477,9 +1712,11 @@ detect_firewall_alternatives() {
     debug_log "Scanning for all installed firewalls..."
     
     if command -v ufw >/dev/null 2>&1; then
-        local status=$(ufw status 2>/dev/null | grep -i "status" | awk '{print tolower($2)}')
+        local status
+        status=$(ufw status 2>/dev/null | grep -i "status" | awk '{print tolower($2)}')
         [[ -z "$status" ]] && status="inactive"
-        local version=$(get_component_version "ufw")
+        local version
+        version=$(get_component_version "ufw")
         alternatives+=("ufw (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "ufw: $status"
     fi
@@ -1487,22 +1724,26 @@ detect_firewall_alternatives() {
     if command -v firewall-cmd >/dev/null 2>&1; then
         local status="inactive"
         is_service_active firewalld && status="active"
-        local version=$(get_component_version "firewalld")
+        local version
+        version=$(get_component_version "firewalld")
         alternatives+=("firewalld (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "firewalld: $status"
     fi
     
     if command -v iptables >/dev/null 2>&1; then
-        local rules=$(iptables -L -n 2>/dev/null | wc -l)
+        local rules
+        rules=$(iptables -L -n 2>/dev/null | wc -l)
         local status="default"
         [[ $rules -gt 8 ]] && status="configured"
-        local version=$(get_component_version "iptables")
+        local version
+        version=$(get_component_version "iptables")
         alternatives+=("iptables (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "iptables: $status ($rules rule lines)"
     fi
     
     if command -v nft >/dev/null 2>&1; then
-        local rules=$(nft list ruleset 2>/dev/null | wc -l)
+        local rules
+        rules=$(nft list ruleset 2>/dev/null | wc -l)
         local status="default"
         [[ $rules -gt 0 ]] && status="configured"
         alternatives+=("nftables (${status})")
@@ -1529,7 +1770,8 @@ detect_timesync_alternatives() {
     if command -v chronyd >/dev/null 2>&1; then
         local status="inactive"
         is_service_active chronyd && status="active"
-        local version=$(get_component_version "chronyd")
+        local version
+        version=$(get_component_version "chronyd")
         alternatives+=("chronyd (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "chronyd: $status"
     fi
@@ -1537,7 +1779,8 @@ detect_timesync_alternatives() {
     if command -v ntpd >/dev/null 2>&1; then
         local status="inactive"
         (is_service_active ntpd || is_service_active ntp) && status="active"
-        local version=$(get_component_version "ntpd")
+        local version
+        version=$(get_component_version "ntpd")
         alternatives+=("ntpd (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "ntpd: $status"
     fi
@@ -1545,7 +1788,8 @@ detect_timesync_alternatives() {
     if [[ -f /lib/systemd/systemd-timesyncd ]] || [[ -f /usr/lib/systemd/systemd-timesyncd ]]; then
         local status="inactive"
         is_service_active systemd-timesyncd && status="active"
-        local version=$(get_component_version "systemd-timesyncd")
+        local version
+        version=$(get_component_version "systemd-timesyncd")
         alternatives+=("systemd-timesyncd (${status})$([ -n "$version" ] && echo " (v. ${version})")")
         debug_verbose "systemd-timesyncd: $status"
     fi
@@ -1603,8 +1847,7 @@ get_cpu_info() {
     # Maximum frequency
     local cpu_freq=""
     if [[ -f /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq ]]; then
-        cpu_freq=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null)
-        cpu_freq=$(awk "BEGIN {printf \"%.2f\", $cpu_freq/1000000}")
+        cpu_freq=$(awk "BEGIN {printf \"%.2f\", $(< /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq)/1000000}" 2>/dev/null)
         debug_verbose "CPU frequency from sysfs: ${cpu_freq}GHz"
     elif command -v lscpu >/dev/null 2>&1; then
         cpu_freq=$(lscpu | grep "CPU max MHz:" | awk '{print $4}' | cut -d. -f1)
@@ -1644,53 +1887,37 @@ get_gpu_info() {
     if command -v lspci >/dev/null 2>&1; then
         debug_verbose "Using lspci to detect GPUs..."
         
+        local gpus_output
+        gpus_output=$(
+            lspci |
+            grep -iE "VGA|3D controller|Display controller" |
+            grep -viE "Sensor Hub|Audio|Ethernet|Network|USB|Serial|SMBus|ISA bridge|PCI bridge|SATA|IDE|Memory controller|Host bridge|Signal processing|Communication controller|System peripheral" |
+            sed -e 's/.*: //g' \
+                -e 's/Corporation //g' \
+                -e 's/\[AMD\/ATI\]/AMD/g' \
+                -e 's/(R)//g' \
+                -e 's/(TM)//g' \
+                -e 's/  */ /g' \
+                -e 's/ (rev [0-9a-f]\+)$//' \
+                -e 's/Advanced Micro Devices, Inc\. \[AMD\/ATI\]/AMD/g' \
+                -e 's/NVIDIA //' \
+                -e 's/Intel /Intel /' |
+            sort -u
+        )
         while IFS= read -r line; do
-            # Filter only VGA and 3D controllers, excluding non-GPU devices
-            if echo "$line" | grep -qiE "VGA|3D controller|Display controller"; then
-                # Extract only device description
-                local gpu=$(echo "$line" | sed 's/.*: //g')
-                
-                # Filter devices that are NOT GPUs
-                if echo "$gpu" | grep -qiE "Sensor Hub|Audio|Ethernet|Network|USB|Serial|SMBus|ISA bridge|PCI bridge|SATA|IDE|Memory controller|Host bridge|Signal processing|Communication controller|System peripheral"; then
-                    debug_verbose "Skipping non-GPU device: $gpu"
-                    continue
-                fi
-                
-                # Clean output
-                gpu=$(echo "$gpu" | sed -e 's/Corporation //g' \
-                    -e 's/\[AMD\/ATI\]/AMD/g' \
-                    -e 's/(R)//g' \
-                    -e 's/(TM)//g' \
-                    -e 's/  */ /g' \
-                    -e 's/ (rev [0-9a-f]\+)$//' \
-                    -e 's/Advanced Micro Devices, Inc\. \[AMD\/ATI\]/AMD/g' \
-                    -e 's/NVIDIA //' \
-                    -e 's/Intel /Intel /')
-                
-                # Verify not empty and not duplicate
-                if [[ -n "$gpu" ]]; then
-                    # Avoid duplicates
-                    local is_duplicate=false
-                    for existing_gpu in "${gpus[@]}"; do
-                        if [[ "$existing_gpu" == "$gpu" ]]; then
-                            is_duplicate=true
-                            break
-                        fi
-                    done
-                    
-                    if [[ "$is_duplicate" == false ]]; then
-                        gpus+=("$gpu")
-                        debug_info "Found GPU via lspci: $gpu"
-                    fi
-                fi
-            fi
-        done < <(trace_exec "List PCI devices" "lspci")
+            [[ -n "$line" ]] && gpus+=("$line")
+        done <<< "$gpus_output"
+
+        if [[ ${#gpus[@]} -gt 0 ]]; then
+            debug_info "Found ${#gpus[@]} GPU(s) via lspci"
+        fi
     fi
     
     # Method 2: nvidia-smi for NVIDIA (if not already found)
     if command -v nvidia-smi >/dev/null 2>&1 && [[ ${#gpus[@]} -eq 0 ]]; then
         debug_verbose "Trying nvidia-smi for NVIDIA GPU detection..."
-        local nvidia_gpu=$(trace_exec "Query NVIDIA GPU" "nvidia-smi --query-gpu=name --format=csv,noheader" | head -1)
+        local nvidia_gpu
+        nvidia_gpu=$(trace_exec "Query NVIDIA GPU" "nvidia-smi --query-gpu=name --format=csv,noheader" | head -1)
         
         if [[ -n "$nvidia_gpu" ]]; then
             gpus+=("$nvidia_gpu")
@@ -1704,8 +1931,8 @@ get_gpu_info() {
         
         for card in /sys/class/drm/card*/device/vendor; do
             if [[ -f "$card" ]]; then
-                local vendor=$(cat "$card" 2>/dev/null)
-                local device_id=$(cat "$(dirname "$card")/device" 2>/dev/null)
+                local vendor
+                vendor=$(<"$card" 2>/dev/null)
                 
                 debug_verbose "Found DRM card with vendor: $vendor"
                 
@@ -1713,7 +1940,8 @@ get_gpu_info() {
                     "0x8086")
                         # Look for specific Intel model
                         if [[ -f "$(dirname "$card")/uevent" ]]; then
-                            local pci_id=$(grep "PCI_ID" "$(dirname "$card")/uevent" | cut -d= -f2)
+                            local pci_id
+                            pci_id=$(grep "PCI_ID" "$(dirname "$card")/uevent" | cut -d= -f2)
                             case "$pci_id" in
                                 *5916*|*5917*) gpus+=("Intel UHD Graphics 620") ;;
                                 *591B*) gpus+=("Intel HD Graphics 630") ;;
@@ -1754,8 +1982,10 @@ get_gpu_info() {
 get_docker_details() {
     debug_function_enter "get_docker_details"
     
-    local runtime_info=$(detect_real_container_runtime)
-    local docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
+    local runtime_info
+    runtime_info=$(detect_real_container_runtime)
+    local docker_type
+    docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
     
     # If it's podman-docker, don't show as Docker
     if [[ "$docker_type" == "podman-docker" ]] || [[ -z "$docker_type" ]]; then
@@ -1772,10 +2002,12 @@ get_docker_details() {
     
     debug_log "Gathering Docker configuration details..."
     
-    local version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
+    local version
+    version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
     [[ -n "$version" ]] && echo "version:${version}" && debug_verbose "Docker version: $version"
     
-    local docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker")
+    local docker_root
+    docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker")
     echo "runRoot:${docker_root}"
     debug_verbose "Docker root: $docker_root"
     
@@ -1783,7 +2015,8 @@ get_docker_details() {
     
     local registries="docker.io (default)"
     if [[ -f /etc/docker/daemon.json ]] && command -v jq >/dev/null 2>&1; then
-        local custom_reg=$(jq -r '."registry-mirrors"[]?' /etc/docker/daemon.json 2>/dev/null)
+        local custom_reg
+        custom_reg=$(jq -r '."registry-mirrors"[]?' /etc/docker/daemon.json 2>/dev/null)
         [[ -n "$custom_reg" ]] && registries="${registries}, ${custom_reg}"
         debug_verbose "Docker registries: $registries"
     fi
@@ -1795,9 +2028,10 @@ get_docker_details() {
 get_podman_details() {
     debug_function_enter "get_podman_details"
     
-    local runtime_info=$(detect_real_container_runtime)
-    local docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
-    local podman_type=$(echo "$runtime_info" | grep -o 'podman_type:[^|]*' | cut -d: -f2)
+    local runtime_info
+    runtime_info=$(detect_real_container_runtime)
+    local docker_type
+    docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
     
     # Determine which command to use
     local cmd="podman"
@@ -1813,13 +2047,17 @@ get_podman_details() {
     
     debug_log "Gathering Podman configuration details using command: $cmd"
     
-    local version=$($cmd version --format '{{.Version}}' 2>/dev/null)
+    local version
+    version=$($cmd version --format '{{.Version}}' 2>/dev/null)
     [[ -n "$version" ]] && echo "version:${version}" && debug_verbose "Podman version: $version"
     
     if command -v jq >/dev/null 2>&1; then
-        local podman_info=$($cmd info --format json 2>/dev/null)
-        local run_root=$(echo "$podman_info" | jq -r '.store.runRoot // ""' 2>/dev/null)
-        local volume_path=$(echo "$podman_info" | jq -r '.store.volumePath // ""' 2>/dev/null)
+        local podman_info
+        podman_info=$($cmd info --format json 2>/dev/null)
+        local run_root
+        run_root=$(echo "$podman_info" | jq -r '.store.runRoot // ""' 2>/dev/null)
+        local volume_path
+        volume_path=$(echo "$podman_info" | jq -r '.store.volumePath // ""' 2>/dev/null)
         
         [[ -n "$run_root" ]] && echo "runRoot:${run_root}" && debug_verbose "Podman runRoot: $run_root"
         [[ -n "$volume_path" ]] && echo "volumePath:${volume_path}" && debug_verbose "Podman volumePath: $volume_path"
@@ -1831,7 +2069,8 @@ get_podman_details() {
     
     local registries="docker.io, quay.io (default)"
     if [[ -f /etc/containers/registries.conf ]]; then
-        local custom_reg=$(grep -E "^registries.*=.*\[" /etc/containers/registries.conf 2>/dev/null | \
+        local custom_reg
+        custom_reg=$(grep -E "^registries.*=.*\[" /etc/containers/registries.conf 2>/dev/null | \
             grep -oP "\[\K[^\]]*" | tr -d "'" | tr ',' ' ' | head -1)
         [[ -n "$custom_reg" ]] && registries="${custom_reg}"
         debug_verbose "Podman registries: $registries"
@@ -1854,13 +2093,15 @@ get_lxc_details() {
     
     # Check LXC version
     if command -v lxc-info >/dev/null 2>&1; then
-        local lxc_version=$(lxc-info --version 2>/dev/null)
+        local lxc_version
+        lxc_version=$(lxc-info --version 2>/dev/null)
         [[ -n "$lxc_version" ]] && echo "lxc_version:${lxc_version}" && debug_verbose "LXC version: $lxc_version"
     fi
     
     # Check LXD version
     if command -v lxc >/dev/null 2>&1; then
-        local lxd_version=$(lxc --version 2>/dev/null)
+        local lxd_version
+        lxd_version=$(lxc --version 2>/dev/null)
         [[ -n "$lxd_version" ]] && echo "lxd_version:${lxd_version}" && debug_verbose "LXD version: $lxd_version"
     fi
     
@@ -1877,277 +2118,61 @@ get_lxc_details() {
 
 net_info() {
     debug_function_enter "net_info"
-    
-    local lan_info=()
-    local wlan_info=()
-    local virtual_info=()
-    
-    debug_log "Gathering network interface information..."
-    
-    # Get all interfaces
+
+    LAN_ARRAY=()
+    WLAN_ARRAY=()
+    VIRTUAL_ARRAY=()
     local iface_count=0
-    while IFS= read -r iface; do
-        [[ -z "$iface" ]] && continue
+
+    debug_log "Gathering network interface information from /sys/class/net"
+
+    # Get all IP addresses in one go
+    declare -A ip_addrs
+    while read -r line; do
+        local iface
+        iface=$(echo "$line" | awk '{print $2}')
+        local ip
+        ip=$(echo "$line" | awk '{print $4}' | cut -d/ -f1)
+        ip_addrs["$iface"]="$ip"
+    done < <(ip -o -4 addr show 2>/dev/null)
+
+    # Iterate over all network interfaces in /sys/class/net
+    for iface_path in /sys/class/net/*; do
+        local iface
+        iface=$(basename "$iface_path")
         
-        # Exclude loopback
         [[ "$iface" == "lo" ]] && continue
-        
         ((iface_count++))
-        debug_verbose "Processing interface: $iface"
+
+        local ip_addr="${ip_addrs[$iface]}"
+        local state
+        state=$(<"$iface_path/operstate")
         
-        # Get IP address
-        local ip_addr=$(ip -4 addr show dev "$iface" 2>/dev/null | grep -m 1 'inet ' | awk '{print $2}' | cut -d/ -f1)
-        [[ -z "$ip_addr" ]] && ip_addr="no IP"
-        
-        # Classify interface
-        # WLAN: starts with 'w' (wlan, wlp, wl, wifi)
-        if [[ "$iface" =~ ^w ]]; then
-            wlan_info+=("$iface ($ip_addr)")
-            debug_verbose "  → Classified as WLAN"
-        # Virtual: docker, bridge, virbr, veth, tap, tun, vboxnet, vmnet
-        elif [[ "$iface" =~ ^(docker|br-|virbr|veth|tap|tun|vboxnet|vmnet|vnet|lxc) ]]; then
-            virtual_info+=("$iface ($ip_addr)")
-            debug_verbose "  → Classified as Virtual"
-        # LAN: everything else (enp, eth, eno, ens, etc.)
+        local display_ip
+        if [[ "$state" == "down" ]]; then
+            display_ip="down"
         else
-            lan_info+=("$iface ($ip_addr)")
+            display_ip="${ip_addr:-no IP}"
+        fi
+
+        debug_verbose "Processing interface: $iface, State: $state, IP: $display_ip"
+
+        # Categorize the interface
+        if [[ -d "$iface_path/wireless" ]]; then
+            WLAN_ARRAY+=("$iface ($display_ip)")
+            debug_verbose "  → Classified as WLAN"
+        elif [[ ! -d "$iface_path/device" || "$(readlink -f "$iface_path/device")" == *"/virtual/"* ]]; then
+            VIRTUAL_ARRAY+=("$iface ($display_ip)")
+            debug_verbose "  → Classified as Virtual"
+        else
+            LAN_ARRAY+=("$iface ($display_ip)")
             debug_verbose "  → Classified as LAN"
         fi
-    done < <(ip -o link show | awk -F': ' '{print $2}')
-    
+    done
+
     debug_info "Processed $iface_count network interface(s)"
-    
-    # Build output with ||| delimiter
-    local lan_str=""
-    local wlan_str=""
-    local virt_str=""
-    
-    # LAN
-    if [[ ${#lan_info[@]} -gt 0 ]]; then
-        lan_str="${lan_info[0]}"
-        for ((i=1; i<${#lan_info[@]}; i++)); do
-            lan_str="${lan_str}|||${lan_info[$i]}"
-        done
-    fi
-    
-    # WLAN
-    if [[ ${#wlan_info[@]} -gt 0 ]]; then
-        wlan_str="${wlan_info[0]}"
-        for ((i=1; i<${#wlan_info[@]}; i++)); do
-            wlan_str="${wlan_str}|||${wlan_info[$i]}"
-        done
-    fi
-    
-    # Virtual
-    if [[ ${#virtual_info[@]} -gt 0 ]]; then
-        virt_str="${virtual_info[0]}"
-        for ((i=1; i<${#virtual_info[@]}; i++)); do
-            virt_str="${virt_str}|||${virtual_info[$i]}"
-        done
-    fi
-    
-    local result="LAN:${lan_str}|WLAN:${wlan_str}|VIRT:${virt_str}"
-    debug_function_exit "net_info" "${#lan_info[@]} LAN, ${#wlan_info[@]} WLAN, ${#virtual_info[@]} Virtual"
-    echo "$result"
+    debug_function_exit "net_info" "${#LAN_ARRAY[@]} LAN, ${#WLAN_ARRAY[@]} WLAN, ${#VIRTUAL_ARRAY[@]} Virtual"
 }
-
-# ============================================================================
-# COLLECT INFO
-# ============================================================================
-
-collect_info() {
-    debug_function_enter "collect_info"
-    debug_info "${BOLD}Starting system information collection...${RESET}"
-    
-    # Basic system info
-    debug_log "=== Phase 1: Basic System Information ==="
-    HOSTNAME=$(hostname)
-    debug_verbose "Hostname: $HOSTNAME"
-    
-    HOST_MODEL=$(get_host_info)
-    
-    DISTRO=$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'"' -f2)
-    [[ -z "$DISTRO" ]] && DISTRO=$(lsb_release -d 2>/dev/null | cut -f2)
-    debug_verbose "Distribution: $DISTRO"
-    
-    KERNEL=$(uname -r)
-    ARCH=$(uname -m)
-    debug_verbose "Kernel: $KERNEL ($ARCH)"
-    
-    # Hardware info
-    debug_log "=== Phase 2: Hardware Detection ==="
-    CPU_INFO=$(get_cpu_info)
-    GPU_INFO=$(get_gpu_info)
-    
-    # Convert GPU to array if multiple
-    if [[ "$GPU_INFO" != "Unable to detect" ]]; then
-        mapfile -t GPU_ARRAY < <(echo "$GPU_INFO" | tr '|' '\n' | grep -v '^$')
-        debug_info "GPU array size: ${#GPU_ARRAY[@]}"
-    else
-        GPU_ARRAY=("Unable to detect")
-    fi
-    
-    # System uptime
-    UPTIME=$(uptime -p 2>/dev/null | sed 's/up //')
-    [[ -z "$UPTIME" ]] && UPTIME=$(uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}')
-    debug_verbose "System uptime: $UPTIME"
-    
-    SHELL_VERSION=$(basename "$SHELL")
-    
-    # Core system components
-    debug_log "=== Phase 3: System Components ==="
-    INIT_SYSTEM=$(detect_init)
-    INIT_VERSION=$(get_component_version "$INIT_SYSTEM")
-    INIT_DISPLAY=$(format_with_version "$INIT_SYSTEM" "$INIT_VERSION")
-    
-    NETWORK_MGR=$(detect_network_manager)
-    NETWORK_VERSION=$(get_component_version "$NETWORK_MGR")
-    NETWORK_DISPLAY=$(format_with_version "$NETWORK_MGR" "$NETWORK_VERSION")
-    
-    TIME_SYNC=$(detect_time_sync)
-    TIME_VERSION=$(get_component_version "$TIME_SYNC")
-    TIME_DISPLAY=$(format_with_version "$TIME_SYNC" "$TIME_VERSION")
-    
-    FIREWALL=$(detect_firewall)
-    FIREWALL_VERSION=$(get_component_version "$FIREWALL")
-    FIREWALL_DISPLAY=$(format_with_version "$FIREWALL" "$FIREWALL_VERSION")
-    
-    # Package managers
-    debug_log "=== Phase 4: Package Managers ==="
-    PKG_MGR=$(detect_package_manager)
-    PKG_MANAGERS=$(detect_all_package_managers)
-    
-    # Security
-    SECURITY=$(detect_security)
-    if [[ "$SECURITY" == "AppArmor" ]]; then
-        SECURITY_VERSION=$(get_component_version "$SECURITY")
-        SECURITY_DISPLAY=$(format_with_version "$SECURITY" "$SECURITY_VERSION")
-    else
-        SECURITY_DISPLAY="$SECURITY"
-    fi
-    
-    DNS_RESOLVER=$(detect_dns_resolver)
-    DISPLAY_SERVER=$(detect_display_server)
-    CRON_SYS=$(detect_cron)
-    
-    # Container runtimes
-    debug_log "=== Phase 5: Container Runtimes ==="
-    CONTAINER_RUNTIME=$(detect_container_runtime)
-    DOCKER_CONTAINERS=$(get_docker_containers)
-    PODMAN_CONTAINERS=$(get_podman_containers)
-    LXC_CONTAINERS=$(get_lxc_containers)
-    
-    # Convert container strings to arrays
-    if [[ -n "$DOCKER_CONTAINERS" ]] && [[ "$DOCKER_CONTAINERS" != "None running" ]]; then
-        mapfile -t DOCKER_ARRAY < <(echo "$DOCKER_CONTAINERS" | tr '|' '\n' | grep -v '^$')
-    else
-        DOCKER_ARRAY=()
-    fi
-    
-    if [[ -n "$PODMAN_CONTAINERS" ]] && [[ "$PODMAN_CONTAINERS" != "None running" ]]; then
-        mapfile -t PODMAN_ARRAY < <(echo "$PODMAN_CONTAINERS" | tr '|' '\n' | grep -v '^$')
-    else
-        PODMAN_ARRAY=()
-    fi
-    
-    if [[ -n "$LXC_CONTAINERS" ]] && [[ "$LXC_CONTAINERS" != "None running" ]]; then
-        mapfile -t LXC_ARRAY < <(echo "$LXC_CONTAINERS" | tr '|' '\n' | grep -v '^$')
-    else
-        LXC_ARRAY=()
-    fi
-    
-    debug_info "Container summary: ${#DOCKER_ARRAY[@]} Docker, ${#PODMAN_ARRAY[@]} Podman, ${#LXC_ARRAY[@]} LXC"
-    
-    # Virtualization and boot
-    debug_log "=== Phase 6: Virtualization & Boot ==="
-    KVM_STATUS=$(detect_kvm)
-    BOOTLOADER=$(detect_bootloader)
-    
-    # Memory and storage
-    debug_log "=== Phase 7: Memory & Storage ==="
-    MEMORY_INFO=$(get_memory_info)
-    SWAP_INFO=$(get_swap_info)
-    mapfile -t DISK_SUMMARY < <(get_disk_summary)
-    
-    # Network interfaces
-    debug_log "=== Phase 8: Network Interfaces ==="
-    local net_raw=$(net_info)
-    
-    # Parse network info
-    LAN_IFACES=$(echo "$net_raw" | grep -o 'LAN:[^|]*' | cut -d: -f2)
-    WLAN_IFACES=$(echo "$net_raw" | grep -o 'WLAN:[^|]*' | cut -d: -f2)
-    VIRTUAL_IFACES=$(echo "$net_raw" | grep -o 'VIRT:[^|]*' | cut -d: -f2)
-    
-    # Convert to arrays
-    if [[ -n "$LAN_IFACES" ]]; then
-        mapfile -t LAN_ARRAY < <(echo "$LAN_IFACES" | tr '|' '\n' | grep -v '^$')
-    else
-        LAN_ARRAY=()
-    fi
-    
-    if [[ -n "$WLAN_IFACES" ]]; then
-        mapfile -t WLAN_ARRAY < <(echo "$WLAN_IFACES" | tr '|' '\n' | grep -v '^$')
-    else
-        WLAN_ARRAY=()
-    fi
-    
-    if [[ -n "$VIRTUAL_IFACES" ]]; then
-        mapfile -t VIRTUAL_ARRAY < <(echo "$VIRTUAL_IFACES" | tr '|' '\n' | grep -v '^$')
-    else
-        VIRTUAL_ARRAY=()
-    fi
-    
-    debug_info "Network interfaces: ${#LAN_ARRAY[@]} LAN, ${#WLAN_ARRAY[@]} WLAN, ${#VIRTUAL_ARRAY[@]} Virtual"
-    
-    # Partition layout
-    debug_log "=== Phase 9: Partition Layout ==="
-    mapfile -t PARTITIONS < <(get_partition_layout)
-    
-    # Alternative components
-    debug_log "=== Phase 10: Alternative Components Detection ==="
-    mapfile -t NETWORK_ALTERNATIVES < <(detect_network_alternatives)
-    mapfile -t FIREWALL_ALTERNATIVES < <(detect_firewall_alternatives)
-    mapfile -t TIMESYNC_ALTERNATIVES < <(detect_timesync_alternatives)
-    
-    debug_info "Alternative components: ${#NETWORK_ALTERNATIVES[@]} network, ${#FIREWALL_ALTERNATIVES[@]} firewall, ${#TIMESYNC_ALTERNATIVES[@]} timesync"
-    
-    # Container runtime details
-    debug_log "=== Phase 11: Container Runtime Details ==="
-    
-    # Docker details
-    declare -A DOCKER_DETAILS
-    while IFS=':' read -r key value; do
-        [[ -n "$key" ]] && DOCKER_DETAILS["$key"]="$value"
-    done < <(get_docker_details)
-    
-    if [[ ${#DOCKER_DETAILS[@]} -gt 0 ]]; then
-        debug_info "Docker details collected: ${#DOCKER_DETAILS[@]} properties"
-    fi
-    
-    # Podman details
-    declare -A PODMAN_DETAILS
-    while IFS=':' read -r key value; do
-        [[ -n "$key" ]] && PODMAN_DETAILS["$key"]="$value"
-    done < <(get_podman_details)
-    
-    if [[ ${#PODMAN_DETAILS[@]} -gt 0 ]]; then
-        debug_info "Podman details collected: ${#PODMAN_DETAILS[@]} properties"
-    fi
-    
-    # LXC details
-    declare -A LXC_DETAILS
-    while IFS=':' read -r key value; do
-        [[ -n "$key" ]] && LXC_DETAILS["$key"]="$value"
-    done < <(get_lxc_details)
-    
-    if [[ ${#LXC_DETAILS[@]} -gt 0 ]]; then
-        debug_info "LXC/LXD details collected: ${#LXC_DETAILS[@]} properties"
-    fi
-    
-    debug_info "${GREEN}✓${RESET} System information collection completed successfully"
-    debug_function_exit "collect_info"
-}
-
 # ============================================================================
 # DISPLAY FUNCTIONS - Enhanced with Section Markers
 # ============================================================================
@@ -2160,22 +2185,8 @@ print_section_header() {
     echo -e "${BOLD}${WHITE}$title${RESET}"
 }
 
-display_info() {
-    debug_function_enter "display_info"
-    debug_info "Starting information display..."
-    
-    # Header
-    echo ""
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BLUE}║${RESET}                  ${BOLD}${WHITE}LINUX SYSTEM CONFIGURATION INFO${RESET}                   ${BLUE}║${RESET}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════════════════╝${RESET}"
-
-    
-    # ========================================================================
-    # SYSTEM OVERVIEW
-    # ========================================================================
+display_system_info() {
     print_section_header "SYSTEM OVERVIEW"
-    
     print_info "Hostname" "$HOSTNAME"
     print_info "Host/Model" "$HOST_MODEL"
     print_info "Distribution" "$DISTRO"
@@ -2183,29 +2194,22 @@ display_info() {
     print_info "Architecture" "$ARCH"
     print_info "Uptime" "$UPTIME"
     print_info "Shell" "$SHELL_VERSION"
-    
-    # ========================================================================
-    # HARDWARE
-    # ========================================================================
+}
+
+display_hardware_info() {
     print_section_header "HARDWARE"
-    
     print_info "CPU" "$CPU_INFO"
-    
-    # Multiple GPUs handling
     if [[ ${#GPU_ARRAY[@]} -gt 0 ]]; then
         print_info_multiline "GPU" "${GPU_ARRAY[@]}"
     else
         print_info "GPU" "Unable to detect"
     fi
-    
-    # ========================================================================
-    # MEMORY & STORAGE
-    # ========================================================================
+}
+
+display_mem_info() {
     print_section_header "MEMORY & STORAGE"
-    
     print_info "RAM" "$MEMORY_INFO"
     print_info "Swap" "$SWAP_INFO"
-    
     echo ""
     echo -e "${CYAN}Disk Usage Summary:${RESET}"
     if [[ ${#DISK_SUMMARY[@]} -gt 0 ]]; then
@@ -2215,7 +2219,6 @@ display_info() {
     else
         echo -e "  ${YELLOW}Unable to detect${RESET}"
     fi
-    
     echo ""
     echo -e "${CYAN}Key Partitions:${RESET}"
     if [[ ${#PARTITIONS[@]} -gt 0 ]]; then
@@ -2225,12 +2228,10 @@ display_info() {
     else
         echo -e "  ${YELLOW}Unable to detect${RESET}"
     fi
-    
-    # ========================================================================
-    # CORE SYSTEM COMPONENTS
-    # ========================================================================
+}
+
+display_core_info() {
     print_section_header "CORE SYSTEM COMPONENTS"
-    
     print_info "Init System" "$INIT_DISPLAY"
     print_info "Network Manager" "$NETWORK_DISPLAY"
     print_info "Time Sync" "$TIME_DISPLAY"
@@ -2240,46 +2241,35 @@ display_info() {
     print_info "Security Framework" "$SECURITY_DISPLAY"
     print_info "Display Server" "$DISPLAY_SERVER"
     print_info "Bootloader" "$BOOTLOADER"
-    
-    # ========================================================================
-    # NETWORK INTERFACES
-    # ========================================================================
+}
+
+display_net_info() {
     print_section_header "NETWORK INTERFACES"
-    
-    # LAN interfaces
     if [[ ${#LAN_ARRAY[@]} -gt 0 ]]; then
         print_info_multiline "LAN Interfaces" "${LAN_ARRAY[@]}"
     else
         print_info "LAN Interfaces" "None detected"
     fi
-    
-    # WLAN interfaces
     if [[ ${#WLAN_ARRAY[@]} -gt 0 ]]; then
         print_info_multiline "WLAN Interfaces" "${WLAN_ARRAY[@]}"
     else
         print_info "WLAN Interfaces" "None detected"
     fi
-    
-    # Virtual interfaces
     if [[ ${#VIRTUAL_ARRAY[@]} -gt 0 ]]; then
         print_info_multiline "Virtual Interfaces" "${VIRTUAL_ARRAY[@]}"
     else
         print_info "Virtual Interfaces" "None detected"
     fi
-    
-    # ========================================================================
-    # PACKAGE MANAGERS
-    # ========================================================================
+}
+
+display_packages_info() {
     print_section_header "PACKAGE MANAGERS"
-    
     print_info "Primary Package Manager" "$PKG_MGR"
     print_info "All Package Managers" "$PKG_MANAGERS"
-    
-    # ========================================================================
-    # ALTERNATIVE COMPONENTS
-    # ========================================================================
+}
+
+display_alternatives_info() {
     print_section_header "ALTERNATIVE COMPONENTS (Installed)"
-    
     echo -e "${CYAN}Network Managers:${RESET}"
     if [[ ${#NETWORK_ALTERNATIVES[@]} -gt 0 ]] && [[ "${NETWORK_ALTERNATIVES[0]}" != "None detected" ]]; then
         for alt in "${NETWORK_ALTERNATIVES[@]}"; do
@@ -2288,7 +2278,6 @@ display_info() {
     else
         echo -e "  ${YELLOW}None detected${RESET}"
     fi
-    
     echo ""
     echo -e "${CYAN}Firewalls:${RESET}"
     if [[ ${#FIREWALL_ALTERNATIVES[@]} -gt 0 ]] && [[ "${FIREWALL_ALTERNATIVES[0]}" != "None detected" ]]; then
@@ -2298,7 +2287,6 @@ display_info() {
     else
         echo -e "  ${YELLOW}None detected${RESET}"
     fi
-    
     echo ""
     echo -e "${CYAN}Time Synchronization:${RESET}"
     if [[ ${#TIMESYNC_ALTERNATIVES[@]} -gt 0 ]] && [[ "${TIMESYNC_ALTERNATIVES[0]}" != "None detected" ]]; then
@@ -2308,21 +2296,17 @@ display_info() {
     else
         echo -e "  ${YELLOW}None detected${RESET}"
     fi
-    
-    # ========================================================================
-    # VIRTUALIZATION & CONTAINERS
-    # ========================================================================
+}
+
+display_virt_info() {
     print_section_header "VIRTUALIZATION & CONTAINERS"
-    
     print_info "KVM Status" "$KVM_STATUS"
     print_info "Container Runtimes" "$CONTAINER_RUNTIME"
-    
-    # Docker containers - ONLY SHOW IF DOCKER IS ACTUALLY INSTALLED
     if command -v docker >/dev/null 2>&1; then
-        local runtime_info=$(detect_real_container_runtime)
-        local docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
-        
-        # Only show Docker section if it's real Docker (not podman-docker)
+        local runtime_info
+        runtime_info=$(detect_real_container_runtime)
+        local docker_type
+        docker_type=$(echo "$runtime_info" | grep -o 'docker_type:[^|]*' | cut -d: -f2)
         if [[ "$docker_type" == "docker" ]]; then
             echo ""
             echo -e "${CYAN}Docker Containers (Running):${RESET}"
@@ -2330,8 +2314,6 @@ display_info() {
                 for container in "${DOCKER_ARRAY[@]}"; do
                     echo -e "  ${GREEN}→${RESET} $container"
                 done
-                
-                # Docker configuration details
                 if [[ ${#DOCKER_DETAILS[@]} -gt 0 ]]; then
                     echo ""
                     echo -e "${CYAN}Docker Configuration:${RESET}"
@@ -2345,17 +2327,13 @@ display_info() {
             fi
         fi
     fi
-    
-    # Podman containers - ONLY SHOW IF PODMAN IS ACTUALLY INSTALLED
-    if command -v podman >/dev/null 2>&1 || [[ "$docker_type" == "podman-docker" ]]; then
+    if command -v podman >/dev/null 2>&1 || (command -v docker >/dev/null 2>&1 && [[ "$(detect_real_container_runtime)" == *"podman-docker"* ]]); then
         echo ""
         echo -e "${CYAN}Podman Containers (Running):${RESET}"
         if [[ ${#PODMAN_ARRAY[@]} -gt 0 ]]; then
             for container in "${PODMAN_ARRAY[@]}"; do
                 echo -e "  ${GREEN}→${RESET} $container"
             done
-            
-            # Podman configuration details
             if [[ ${#PODMAN_DETAILS[@]} -gt 0 ]]; then
                 echo ""
                 echo -e "${CYAN}Podman Configuration:${RESET}"
@@ -2369,8 +2347,6 @@ display_info() {
             echo -e "  ${YELLOW}None running${RESET}"
         fi
     fi
-    
-    # LXC/LXD containers - ONLY SHOW IF LXC/LXD IS ACTUALLY INSTALLED
     if command -v lxc-ls >/dev/null 2>&1 || command -v lxc >/dev/null 2>&1; then
         echo ""
         echo -e "${CYAN}LXC/LXD Containers (Running):${RESET}"
@@ -2378,8 +2354,6 @@ display_info() {
             for container in "${LXC_ARRAY[@]}"; do
                 echo -e "  ${GREEN}→${RESET} $container"
             done
-            
-            # LXC configuration details
             if [[ ${#LXC_DETAILS[@]} -gt 0 ]]; then
                 echo ""
                 echo -e "${CYAN}LXC/LXD Configuration:${RESET}"
@@ -2392,23 +2366,6 @@ display_info() {
             echo -e "  ${YELLOW}None running${RESET}"
         fi
     fi
-    
-    # ========================================================================
-    # FOOTER
-    # ========================================================================
-    # Calculate total elapsed time
-    local end_time=$(date +%s)
-    local total_elapsed=$((end_time - SCRIPT_START_TIME))
-    local execution_time="${GRAY}(ExecutionTime: ${total_elapsed}s)${RESET}"
-    echo ""
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BLUE}║${RESET}                   ${BOLD}${WHITE}END SYSTEM CONFIGURATION INFO ${RESET}                   ${BLUE}║${RESET}"
-    echo -e "${BLUE}║${RESET}                  ${BOLD}${WHITE}      ${execution_time}${RESET}                         ${BLUE}║${RESET}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════════════════╝${RESET}"
-    echo ""
-    
-    debug_info "Information display completed"
-    debug_function_exit "display_info"
 }
 
 # ============================================================================
@@ -2419,34 +2376,84 @@ main() {
     debug_function_enter "main"
     debug_info "${BOLD}${BRIGHT_CYAN}=== SYSINFO SCRIPT EXECUTION START ===${RESET}"
     debug_info "Script invoked with arguments: $*"
-    
+
     # Step 1: Parse command-line arguments
     debug_log "Step 1: Parsing command-line arguments..."
     parse_arguments "$@"
     debug_verbose "Arguments parsed. Debug=$DEBUG_MODE, Verbose=$VERBOSE_MODE, Trace=$TRACE_COMMANDS, Colors=$USE_COLORS"
-    
+
     # Step 2: Initialize color scheme
     debug_log "Step 2: Initializing color scheme..."
     init_colors
     debug_verbose "Color scheme initialized (USE_COLORS=$USE_COLORS)"
-    
+
     # Step 3: Detect init system and set environment
     debug_log "Step 3: Detecting init system and setting environment..."
     detect_init_and_set_env
     debug_info "Init system detection complete: IS_SYSTEMD=$IS_SYSTEMD"
     
-    # Step 4: Collect all system information
-    debug_log "Step 4: Starting comprehensive system information collection..."
-    collect_info
-    debug_info "${GREEN}✓${RESET} System information collection phase completed"
+    # Header
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${BLUE}║${RESET}                  ${BOLD}${WHITE}LINUX SYSTEM CONFIGURATION INFO${RESET}                   ${BLUE}║${RESET}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════════════╝${RESET}"
+
+
+    # Step 4: Collect and display information for each requested section
+    for section in "${SECTIONS_TO_SHOW[@]}"; do
+        case "$section" in
+            system)
+                get_system_info
+                display_system_info
+                ;;
+            hardware)
+                get_hardware_info
+                display_hardware_info
+                ;;
+            mem)
+                get_mem_info
+                display_mem_info
+                ;;
+            core)
+                get_core_info
+                display_core_info
+                ;;
+            net)
+                get_net_info
+                display_net_info
+                ;;
+            packages)
+                get_packages_info
+                display_packages_info
+                ;;
+            alternatives)
+                get_alternatives_info
+                display_alternatives_info
+                ;;
+            virt)
+                get_virt_info
+                display_virt_info
+                ;;
+        esac
+    done
     
-    # Step 5: Display collected information
-    debug_log "Step 5: Displaying collected information to user..."
-    display_info
-    debug_info "${GREEN}✓${RESET} Information display phase completed"
-    
+    # ========================================================================
+    # FOOTER
+    # ========================================================================
+    # Calculate total elapsed time
+    local end_time
+    end_time=$(date +%s)
+    local total_elapsed=$((end_time - SCRIPT_START_TIME))
+    local execution_time="${GRAY}(ExecutionTime: ${total_elapsed}s)${RESET}"
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${BLUE}║${RESET}                   ${BOLD}${WHITE}END SYSTEM CONFIGURATION INFO ${RESET}                   ${BLUE}║${RESET}"
+    echo -e "${BLUE}║${RESET}                  ${BOLD}${WHITE}      ${execution_time}${RESET}                         ${BLUE}║${RESET}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════════════╝${RESET}"
+    echo ""
+
     # Execution summary
-    local end_time=$(date +%s)
+    end_time=$(date +%s)
     local total_time=$((end_time - SCRIPT_START_TIME))
     
     debug_info "${BOLD}${BRIGHT_CYAN}=== SYSINFO SCRIPT EXECUTION END ===${RESET}"
